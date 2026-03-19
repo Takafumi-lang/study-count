@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>問題集 進捗トラッカー</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f4f7f6;
+    color: #333;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  h2 {
+    text-align: center;
+    color: #2c3e50;
+  }
+  .input-group {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    background: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  .input-group input {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 16px;
+  }
+  button {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 4px;
+    background-color: #3498db;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  button:hover { background-color: #2980b9; }
+  .create-btn { flex: 0.5; }
+  
+  .controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .delete-toggle-btn { background-color: #e74c3c; }
+  .delete-toggle-btn:hover { background-color: #c0392b; }
+  .confirm-delete-btn { background-color: #c0392b; display: none; }
+  
+  /* 大量になってもスクロールできるように設定 */
+  .preset-list {
+    list-style: none;
+    padding: 0;
+    max-height: 60vh; 
+    overflow-y: auto;
+  }
+  .preset-item {
+    background: #fff;
+    margin-bottom: 10px;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+  .preset-item:hover { background-color: #f9f9f9; }
+  .preset-info { flex: 1; }
+  .preset-name { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+  .preset-stats { font-size: 14px; color: #555; }
+  .remaining { color: #e74c3c; font-weight: bold; }
+  
+  .delete-checkbox {
+    display: none;
+    width: 20px;
+    height: 20px;
+    margin-right: 15px;
+    pointer-events: none; 
+  }
+  .delete-mode .delete-checkbox { display: block; }
+  .delete-mode .preset-item { cursor: crosshair; }
+  .selected-for-delete { background-color: #ffeaea !important; }
+
+</style>
+</head>
+<body>
+
+  <h2>📚 進捗トラッカー</h2>
+
+  <div class="input-group">
+    <input type="text" id="presetName" placeholder="名称 (例: 集合と命題)">
+    <input type="number" id="presetTotal" placeholder="問題数" min="1">
+    <button class="create-btn" onclick="addPreset()">作成</button>
+  </div>
+
+  <div class="controls">
+    <button id="deleteToggleBtn" class="delete-toggle-btn" onclick="toggleDeleteMode()">🗑️ 削除</button>
+    <button id="confirmDeleteBtn" class="confirm-delete-btn" onclick="deleteSelected()">選択した項目を削除する</button>
+  </div>
+
+  <ul id="presetList" class="preset-list"></ul>
+
+<script>
+  // ローカルストレージからデータを読み込む（なければ空の配列）
+  let presets = JSON.parse(localStorage.getItem('studyTrackerPresets')) || [];
+  let isDeleteMode = false;
+  let selectedIds = new Set();
+
+  // データを保存する関数
+  function saveData() {
+    localStorage.setItem('studyTrackerPresets', JSON.stringify(presets));
+  }
+
+  function render() {
+    const listEl = document.getElementById('presetList');
+    listEl.innerHTML = '';
+    listEl.className = isDeleteMode ? 'preset-list delete-mode' : 'preset-list';
+
+    const toggleBtn = document.getElementById('deleteToggleBtn');
+    const confirmBtn = document.getElementById('confirmDeleteBtn');
+    if (isDeleteMode) {
+      toggleBtn.textContent = 'キャンセル';
+      toggleBtn.style.backgroundColor = '#95a5a6';
+      confirmBtn.style.display = 'block';
+    } else {
+      toggleBtn.textContent = '🗑️ 削除';
+      toggleBtn.style.backgroundColor = '#e74c3c';
+      confirmBtn.style.display = 'none';
+    }
+
+    presets.forEach(preset => {
+      const remaining = preset.total - preset.completed;
+      const li = document.createElement('li');
+      li.className = 'preset-item';
+      if (selectedIds.has(preset.id)) {
+        li.classList.add('selected-for-delete');
+      }
+
+      li.innerHTML = `
+        <input type="checkbox" class="delete-checkbox" ${selectedIds.has(preset.id) ? 'checked' : ''}>
+        <div class="preset-info">
+          <div class="preset-name">${preset.name}</div>
+          <div class="preset-stats">
+            完了: ${preset.completed} / ${preset.total}問
+            (<span class="remaining">残り: ${remaining}問</span>)
+          </div>
+        </div>
+      `;
+
+      li.onclick = () => {
+        if (isDeleteMode) {
+          if (selectedIds.has(preset.id)) {
+            selectedIds.delete(preset.id);
+          } else {
+            selectedIds.add(preset.id);
+          }
+          render();
+        } else {
+          // すでに完了している場合はアラートを出す
+          if (preset.completed >= preset.total) {
+            alert("この単元はすでに完了しています！素晴らしい！🎉");
+            return;
+          }
+
+          const input = prompt(`「${preset.name}」\n今日進めた問題数を入力してください（半角数字）:`, "0");
+          if (input !== null && input !== "") {
+            const addedNum = parseInt(input, 10);
+            if (!isNaN(addedNum) && addedNum > 0) {
+              preset.completed += addedNum;
+              if (preset.completed > preset.total) preset.completed = preset.total;
+              
+              saveData(); // 変更後に保存
+              render();
+            } else if (addedNum < 0) {
+              alert("0以上の数字を入力してください。");
+            }
+          }
+        }
+      };
+
+      listEl.appendChild(li);
+    });
+  }
+
+  function addPreset() {
+    const nameInput = document.getElementById('presetName');
+    const totalInput = document.getElementById('presetTotal');
+    const name = nameInput.value.trim();
+    const total = parseInt(totalInput.value, 10);
+
+    if (!name || isNaN(total) || total <= 0) {
+      alert("名称と正しい問題数を入力してください。");
+      return;
+    }
+
+    const newPreset = {
+      id: Date.now().toString(),
+      name: name,
+      total: total,
+      completed: 0
+    };
+
+    presets.push(newPreset);
+    saveData(); // 追加後に保存
+    
+    nameInput.value = '';
+    totalInput.value = '';
+    render();
+  }
+
+  function toggleDeleteMode() {
+    isDeleteMode = !isDeleteMode;
+    if (!isDeleteMode) {
+      selectedIds.clear(); 
+    }
+    render();
+  }
+
+  function deleteSelected() {
+    if (selectedIds.size === 0) {
+      alert("削除する項目が選択されていません。");
+      return;
+    }
+    if (confirm("選択した項目を削除してもよろしいですか？\n（この操作は取り消せません）")) {
+      presets = presets.filter(p => !selectedIds.has(p.id));
+      selectedIds.clear();
+      isDeleteMode = false;
+      
+      saveData(); // 削除後に保存
+      render();
+    }
+  }
+
+  render();
+</script>
+</body>
+</html>
